@@ -1,12 +1,13 @@
 import './index.css';
 
-import { StrictMode, useState, useEffect, useCallback } from 'react';
+import { StrictMode, useState, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Troop, Level, Player } from '../shared/types';
 import { TROOP_STATS, LEVELS } from '../shared/constants';
 
 export const App = () => {
-  const [currentLevel, setCurrentLevel] = useState<Level>(LEVELS[0]);
+  // Using non-null assertion since LEVELS array always has at least one element
+  const [currentLevel, setCurrentLevel] = useState<Level>(LEVELS[0]!);
   const [troops, setTroops] = useState<Troop[]>([]);
   const [selectedTroop, setSelectedTroop] = useState<Troop | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<Player>(1);
@@ -29,13 +30,19 @@ export const App = () => {
 
     // Spawn troops for player 1 (left side)
     for (let i = 0; i < level.troopsPerPlayer; i++) {
-      let x, y;
+      let x = 0, y = 0;
+      let attempts = 0;
       do {
         x = Math.floor(Math.random() * 3);
         y = Math.floor(Math.random() * level.size);
-      } while (!isValidPosition(x, y, newTroops));
+        attempts++;
+        if (attempts > 100) {
+          console.error('Could not find valid spawn position for player 1');
+          break;
+        }
+      } while (!isValidPosition(x, y, newTroops) && attempts <= 100);
 
-      const type = troopTypes[Math.floor(Math.random() * troopTypes.length)];
+      const type = troopTypes[Math.floor(Math.random() * troopTypes.length)]!;
       const stats = TROOP_STATS[type];
       
       newTroops.push({
@@ -53,13 +60,19 @@ export const App = () => {
 
     // Spawn troops for player 2 (right side)
     for (let i = 0; i < level.troopsPerPlayer; i++) {
-      let x, y;
+      let x = 0, y = 0;
+      let attempts = 0;
       do {
         x = level.size - 1 - Math.floor(Math.random() * 3);
         y = Math.floor(Math.random() * level.size);
-      } while (!isValidPosition(x, y, newTroops));
+        attempts++;
+        if (attempts > 100) {
+          console.error('Could not find valid spawn position for player 2');
+          break;
+        }
+      } while (!isValidPosition(x, y, newTroops) && attempts <= 100);
 
-      const type = troopTypes[Math.floor(Math.random() * troopTypes.length)];
+      const type = troopTypes[Math.floor(Math.random() * troopTypes.length)]!;
       const stats = TROOP_STATS[type];
       
       newTroops.push({
@@ -85,30 +98,30 @@ export const App = () => {
   }, []);
 
   // Game logic functions
-  const canMoveTo = (troop: Troop, targetX: number, targetY: number): boolean => {
+  const canMoveTo = useCallback((troop: Troop, targetX: number, targetY: number): boolean => {
     if (troop.hasMoved) return false;
     const distance = Math.abs(targetX - troop.x) + Math.abs(targetY - troop.y);
     if (distance > TROOP_STATS[troop.type].movement) return false;
     if (currentLevel.walls.some(([wx, wy]) => wx === targetX && wy === targetY)) return false;
     if (troops.some(t => t.x === targetX && t.y === targetY)) return false;
     return true;
-  };
+  }, [currentLevel.walls, troops]);
 
-  const canAttack = (attacker: Troop, target: Troop): boolean => {
+  const canAttack = useCallback((attacker: Troop, target: Troop): boolean => {
     if (attacker.hasAttacked) return false;
     if (attacker.player === target.player) return false;
     const distance = Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y);
     return distance <= TROOP_STATS[attacker.type].range;
-  };
+  }, []);
 
-  const moveTroop = (troop: Troop, targetX: number, targetY: number) => {
+  const moveTroop = useCallback((troop: Troop, targetX: number, targetY: number) => {
     setTroops(prev => prev.map(t => 
       t.id === troop.id ? { ...t, x: targetX, y: targetY, hasMoved: true } : t
     ));
     setSelectedTroop(prev => prev ? { ...prev, x: targetX, y: targetY, hasMoved: true } : null);
-  };
+  }, []);
 
-  const attackTroop = (attacker: Troop, target: Troop) => {
+  const attackTroop = useCallback((attacker: Troop, target: Troop) => {
     const damage = TROOP_STATS[attacker.type].attack;
     const newHp = Math.max(0, target.hp - damage);
     
@@ -134,18 +147,16 @@ export const App = () => {
     });
     
     setSelectedTroop(prev => prev ? { ...prev, hasAttacked: true } : null);
-  };
+  }, []);
 
-  const endTurn = () => {
+  const endTurn = useCallback(() => {
     setTroops(prev => prev.map(t => ({ ...t, hasMoved: false, hasAttacked: false })));
     setSelectedTroop(null);
     setCurrentPlayer(prev => prev === 1 ? 2 : 1);
-    if (currentPlayer === 2) {
-      setTurnCount(prev => prev + 1);
-    }
-  };
+    setTurnCount(prev => currentPlayer === 2 ? prev + 1 : prev);
+  }, [currentPlayer]);
 
-  const handleCellClick = (x: number, y: number) => {
+  const handleCellClick = useCallback((x: number, y: number) => {
     if (gameOver) return;
 
     const clickedTroop = troops.find(t => t.x === x && t.y === y);
@@ -159,9 +170,9 @@ export const App = () => {
     } else if (selectedTroop && canMoveTo(selectedTroop, x, y)) {
       moveTroop(selectedTroop, x, y);
     }
-  };
+  }, [gameOver, troops, currentPlayer, selectedTroop, canAttack, attackTroop, canMoveTo, moveTroop]);
 
-  const getValidMoves = (troop: Troop): Array<[number, number]> => {
+  const getValidMoves = useCallback((troop: Troop): Array<[number, number]> => {
     if (troop.hasMoved) return [];
     const moves: Array<[number, number]> = [];
     const range = TROOP_STATS[troop.type].movement;
@@ -180,20 +191,96 @@ export const App = () => {
       }
     }
     return moves;
-  };
+  }, [currentLevel.size, canMoveTo]);
 
-  const getAttackTargets = (troop: Troop): Troop[] => {
+  const getAttackTargets = useCallback((troop: Troop): Troop[] => {
     if (troop.hasAttacked) return [];
     return troops.filter(t => canAttack(troop, t));
-  };
+  }, [troops, canAttack]);
 
-  const validMoves = selectedTroop ? getValidMoves(selectedTroop) : [];
-  const attackTargets = selectedTroop ? getAttackTargets(selectedTroop) : [];
+  const validMoves = useMemo(() => 
+    selectedTroop ? getValidMoves(selectedTroop) : [],
+    [selectedTroop, getValidMoves]
+  );
+
+  const attackTargets = useMemo(() => 
+    selectedTroop ? getAttackTargets(selectedTroop) : [],
+    [selectedTroop, getAttackTargets]
+  );
+
+  // Render grid cells
+  const renderGrid = useCallback(() => {
+    const gridSize = currentLevel.size;
+    const cells = [];
+
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
+        const troop = troops.find(t => t.x === x && t.y === y);
+        const isWall = currentLevel.walls.some(([wx, wy]) => wx === x && wy === y);
+        const isValidMove = validMoves.some(([mx, my]) => mx === x && my === y);
+        const isAttackTarget = attackTargets.some(t => t.x === x && t.y === y);
+        const isSelected = selectedTroop?.x === x && selectedTroop?.y === y;
+        const isHovered = hoveredCell?.[0] === x && hoveredCell?.[1] === y;
+        const cellSize = Math.min(500 / gridSize, 50);
+
+        cells.push(
+          <div
+            key={`${x}-${y}`}
+            onClick={() => handleCellClick(x, y)}
+            onMouseEnter={() => setHoveredCell([x, y])}
+            onMouseLeave={() => setHoveredCell(null)}
+            className={`
+              relative cursor-pointer transition-all duration-150
+              ${isWall ? 'bg-slate-800 cursor-not-allowed' : 'bg-slate-900/80 hover:bg-slate-800/80'}
+              ${isValidMove ? 'bg-cyan-500/30 ring-1 ring-cyan-400 animate-pulse' : ''}
+              ${isAttackTarget ? 'bg-red-500/30 ring-1 ring-red-400 animate-pulse' : ''}
+              ${isSelected ? 'ring-2 ring-yellow-400' : ''}
+              ${isHovered ? 'ring-1 ring-white/50' : ''}
+            `}
+            style={{
+              width: `${cellSize}px`,
+              height: `${cellSize}px`
+            }}
+          >
+            {isWall && (
+              <div className="absolute inset-0 flex items-center justify-center text-slate-600 text-xl font-bold">
+                ▓
+              </div>
+            )}
+            {troop && (
+              <div className={`
+                absolute inset-0.5 rounded flex flex-col items-center justify-center
+                ${troop.player === 1 ? 'bg-linear-to-br from-cyan-600 to-blue-700 border border-cyan-400' : 'bg-linear-to-br from-pink-600 to-purple-700 border border-pink-400'}
+                ${isSelected ? 'scale-110 shadow-lg' : 'scale-100'}
+                transition-transform duration-200
+              `}>
+                <div className="text-lg md:text-xl">{TROOP_STATS[troop.type].icon}</div>
+                {/* HP Bar */}
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
+                  <div
+                    className={`h-full transition-all duration-300 ${troop.player === 1 ? 'bg-cyan-400' : 'bg-pink-400'}`}
+                    style={{ width: `${(troop.hp / troop.maxHp) * 100}%` }}
+                  ></div>
+                </div>
+                {troop.hasMoved && (
+                  <div className="absolute top-0 right-0 w-2 h-2 bg-yellow-400 rounded-full"></div>
+                )}
+                {troop.hasAttacked && (
+                  <div className="absolute top-0 left-0 w-2 h-2 bg-red-400 rounded-full"></div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+    }
+    return cells;
+  }, [currentLevel, troops, validMoves, attackTargets, selectedTroop, hoveredCell, handleCellClick]);
 
   // Level select screen
   if (showLevelSelect) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="min-h-screen bg-linear-to-br from-slate-950 via-cyan-950 to-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
         {/* Animated background grid */}
         <div className="absolute inset-0 opacity-20">
           <div className="absolute inset-0" style={{
@@ -205,10 +292,10 @@ export const App = () => {
 
         <div className="relative z-10 max-w-4xl w-full">
           <div className="text-center mb-12">
-            <h1 className="text-6xl md:text-8xl font-black mb-4 bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-2xl" style={{ fontFamily: 'Impact, sans-serif' }}>
+            <h1 className="text-6xl md:text-8xl font-black mb-4 bg-linear-to-r from-cyan-400 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-2xl" style={{ fontFamily: 'Impact, sans-serif' }}>
               TACTICAL
             </h1>
-            <h2 className="text-4xl md:text-6xl font-black bg-gradient-to-r from-purple-600 via-pink-500 to-red-500 bg-clip-text text-transparent" style={{ fontFamily: 'Impact, sans-serif' }}>
+            <h2 className="text-4xl md:text-6xl font-black bg-linear-to-r from-purple-600 via-pink-500 to-red-500 bg-clip-text text-transparent" style={{ fontFamily: 'Impact, sans-serif' }}>
               SKIRMISH
             </h2>
             <p className="text-cyan-400 text-xl mt-4 font-bold tracking-widest">SELECT BATTLEFIELD</p>
@@ -222,7 +309,7 @@ export const App = () => {
                   setCurrentLevel(level);
                   initializeGame(level);
                 }}
-                className="group relative bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border-2 border-cyan-500/50 p-6 rounded-lg hover:border-cyan-400 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/50"
+                className="group relative bg-linear-to-br from-cyan-900/40 to-blue-900/40 border-2 border-cyan-500/50 p-6 rounded-lg hover:border-cyan-400 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/50"
               >
                 <div className="absolute top-2 right-2 text-4xl font-black text-cyan-500/30">
                   {level.id}
@@ -255,7 +342,7 @@ export const App = () => {
   const cellSize = Math.min(500 / gridSize, 50);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-950 p-2 md:p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-cyan-950 to-slate-950 p-2 md:p-4 relative overflow-hidden">
       {/* Animated grid background */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute inset-0" style={{
@@ -267,7 +354,7 @@ export const App = () => {
       <div className="relative z-10 max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-4">
-          <h1 className="text-3xl md:text-5xl font-black bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent" style={{ fontFamily: 'Impact, sans-serif' }}>
+          <h1 className="text-3xl md:text-5xl font-black bg-linear-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent" style={{ fontFamily: 'Impact, sans-serif' }}>
             {currentLevel.name.toUpperCase()}
           </h1>
           <div className="flex justify-center gap-6 mt-2 text-sm md:text-base">
@@ -282,7 +369,7 @@ export const App = () => {
 
         <div className="flex flex-col lg:flex-row gap-4 items-start justify-center">
           {/* Game Board */}
-          <div className="flex-shrink-0">
+          <div className="shrink-0">
             <div 
               className="grid gap-0.5 bg-cyan-900/30 p-1 border-2 border-cyan-500/50 rounded-lg shadow-2xl shadow-cyan-500/20"
               style={{
@@ -290,66 +377,7 @@ export const App = () => {
                 width: 'fit-content'
               }}
             >
-              {Array.from({ length: gridSize }, (_, y) =>
-                Array.from({ length: gridSize }, (_, x) => {
-                  const troop = troops.find(t => t.x === x && t.y === y);
-                  const isWall = currentLevel.walls.some(([wx, wy]) => wx === x && wy === y);
-                  const isValidMove = validMoves.some(([mx, my]) => mx === x && my === y);
-                  const isAttackTarget = attackTargets.some(t => t.x === x && t.y === y);
-                  const isSelected = selectedTroop?.x === x && selectedTroop?.y === y;
-                  const isHovered = hoveredCell?.[0] === x && hoveredCell?.[1] === y;
-
-                  return (
-                    <div
-                      key={`${x}-${y}`}
-                      onClick={() => handleCellClick(x, y)}
-                      onMouseEnter={() => setHoveredCell([x, y])}
-                      onMouseLeave={() => setHoveredCell(null)}
-                      className={`
-                        relative cursor-pointer transition-all duration-150
-                        ${isWall ? 'bg-slate-800 cursor-not-allowed' : 'bg-slate-900/80 hover:bg-slate-800/80'}
-                        ${isValidMove ? 'bg-cyan-500/30 ring-1 ring-cyan-400 animate-pulse' : ''}
-                        ${isAttackTarget ? 'bg-red-500/30 ring-1 ring-red-400 animate-pulse' : ''}
-                        ${isSelected ? 'ring-2 ring-yellow-400' : ''}
-                        ${isHovered ? 'ring-1 ring-white/50' : ''}
-                      `}
-                      style={{
-                        width: `${cellSize}px`,
-                        height: `${cellSize}px`
-                      }}
-                    >
-                      {isWall && (
-                        <div className="absolute inset-0 flex items-center justify-center text-slate-600 text-xl font-bold">
-                          ▓
-                        </div>
-                      )}
-                      {troop && (
-                        <div className={`
-                          absolute inset-0.5 rounded flex flex-col items-center justify-center
-                          ${troop.player === 1 ? 'bg-gradient-to-br from-cyan-600 to-blue-700 border border-cyan-400' : 'bg-gradient-to-br from-pink-600 to-purple-700 border border-pink-400'}
-                          ${isSelected ? 'scale-110 shadow-lg' : 'scale-100'}
-                          transition-transform duration-200
-                        `}>
-                          <div className="text-lg md:text-xl">{TROOP_STATS[troop.type].icon}</div>
-                          {/* HP Bar */}
-                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
-                            <div
-                              className={`h-full transition-all duration-300 ${troop.player === 1 ? 'bg-cyan-400' : 'bg-pink-400'}`}
-                              style={{ width: `${(troop.hp / troop.maxHp) * 100}%` }}
-                            ></div>
-                          </div>
-                          {troop.hasMoved && (
-                            <div className="absolute top-0 right-0 w-2 h-2 bg-yellow-400 rounded-full"></div>
-                          )}
-                          {troop.hasAttacked && (
-                            <div className="absolute top-0 left-0 w-2 h-2 bg-red-400 rounded-full"></div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
+              {renderGrid()}
             </div>
           </div>
 
@@ -357,7 +385,7 @@ export const App = () => {
           <div className="w-full lg:w-80 space-y-4">
             {/* Selected Troop Info */}
             {selectedTroop && (
-              <div className="bg-gradient-to-br from-cyan-900/50 to-blue-900/50 border-2 border-cyan-500/50 rounded-lg p-4">
+              <div className="bg-linear-to-br from-cyan-900/50 to-blue-900/50 border-2 border-cyan-500/50 rounded-lg p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="text-4xl">{TROOP_STATS[selectedTroop.type].icon}</div>
                   <div>
@@ -403,7 +431,7 @@ export const App = () => {
             )}
 
             {/* Army Status */}
-            <div className="bg-gradient-to-br from-cyan-900/50 to-blue-900/50 border-2 border-cyan-500/50 rounded-lg p-4">
+            <div className="bg-linear-to-br from-cyan-900/50 to-blue-900/50 border-2 border-cyan-500/50 rounded-lg p-4">
               <h3 className="text-sm font-bold text-cyan-300 mb-3">ARMY STATUS</h3>
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
@@ -421,7 +449,7 @@ export const App = () => {
             <div className="space-y-2">
               <button
                 onClick={endTurn}
-                className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg"
+                className="w-full bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg"
               >
                 END TURN
               </button>
@@ -438,25 +466,27 @@ export const App = () => {
         {/* Game Over Modal */}
         {gameOver && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-            <div className="bg-gradient-to-br from-cyan-900 to-blue-900 border-4 border-cyan-400 rounded-xl p-8 max-w-md mx-4 text-center">
-              <h2 className="text-5xl font-black mb-4 bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
+            <div className="bg-linear-to-br from-cyan-900 to-blue-900 border-4 border-cyan-400 rounded-xl p-8 max-w-md mx-4 text-center">
+              <h2 className="text-5xl font-black mb-4 bg-linear-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
                 VICTORY!
               </h2>
               <p className="text-3xl font-bold mb-6 text-white">
                 {winner === 1 ? '🔷 Player 1 Wins!' : '🔶 Player 2 Wins!'}
               </p>
-              <button
-                onClick={() => initializeGame(currentLevel)}
-                className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200 transform hover:scale-105"
-              >
-                PLAY AGAIN
-              </button>
-              <button
-                onClick={() => setShowLevelSelect(true)}
-                className="ml-4 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200"
-              >
-                Change Level
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  onClick={() => initializeGame(currentLevel)}
+                  className="bg-linear-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200 transform hover:scale-105"
+                >
+                  PLAY AGAIN
+                </button>
+                <button
+                  onClick={() => setShowLevelSelect(true)}
+                  className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200"
+                >
+                  Change Level
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -465,8 +495,11 @@ export const App = () => {
   );
 };
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <App />
+    </StrictMode>
+  );
+}

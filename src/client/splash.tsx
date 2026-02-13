@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 
 export const Splash = () => {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-cyan-950 to-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Animated background effects */}
       <div className="absolute inset-0 opacity-20">
         <div className="absolute inset-0" style={{
@@ -78,7 +78,7 @@ export const Splash = () => {
         {/* Start button */}
         <button
           onClick={(e) => requestExpandedMode(e.nativeEvent, 'game')}
-          className="group relative inline-flex items-center justify-center px-12 py-4 text-xl font-black text-white bg-gradient-to-r from-cyan-600 to-blue-600 rounded-full overflow-hidden shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 transform hover:scale-110"
+          className="group relative inline-flex items-center justify-center px-12 py-4 text-xl font-black text-white bg-linear-to-r from-cyan-600 to-blue-600 rounded-full overflow-hidden shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 transform hover:scale-110"
         >
           <span className="absolute w-64 h-64 bg-white/20 rounded-full -translate-x-32 -translate-y-32 group-hover:scale-150 transition-transform duration-500"></span>
           <span className="relative flex items-center gap-2">
